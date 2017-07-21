@@ -10,7 +10,7 @@ import gc
 from keras.models import Sequential
 from keras.layers import Dense, Flatten, Activation
 from keras.layers import Dropout
-from keras.layers.convolutional import Conv2D, MaxPooling2D
+from keras.layers.convolutional import Conv1D, Conv2D, MaxPooling1D, MaxPooling2D
 from keras.utils import np_utils
 from keras.optimizers import SGD, Adam
 from keras.utils import plot_model
@@ -51,6 +51,7 @@ data['NAME']=data['NAME'].apply(split_name)
 #перенумеровываем классы от 1 до K
 uniq_cls=data['CLS_ID'].unique()
 len(uniq_cls)
+max_cls = len(uniq_cls)
 cls_ser = pd.Series([i for i in range(len(uniq_cls))],index=uniq_cls)
 data['NEW_CLS_ID'] = data['CLS_ID'].map(cls_ser)
 data=data[['NEW_CLS_ID','NAME','PRJ_ID','PR']]
@@ -61,34 +62,41 @@ del data
 test_data = test_data[test_data['NEW_CLS_ID'].isin(data_selected['NEW_CLS_ID'])]
 
 data_selected = data_selected.sample(frac=1).reset_index(drop=True)
+data_selected.to_csv('data_selected.csv',index=False,encoding='utf-8')
+test_data.to_csv('test_data.csv',index=False,encoding='utf-8')
+data_selected=pd.read_csv('data_selected.csv',encoding='utf-8')
+test_data=pd.read_csv('test_data.csv',encoding='utf-8')
+uniq_cls=data_selected['NEW_CLS_ID'].unique()
+len(uniq_cls)
+max_cls=max(uniq_cls)+1
 
 # Создаем последовательную модель
 model = Sequential()
 # Первый сверточный слой
-model.add(Conv2D(256, (3, 3), padding='same',
-                        input_shape=(max_chars, len(alphabet),1), activation='relu',use_bias=True,
+model.add(Conv1D(256, (7), padding='same',
+                        input_shape=(max_chars, len(alphabet)), activation='relu',use_bias=True,
                         kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
-model.add(MaxPooling2D(pool_size=(3, 3)))
-model.add(Conv2D(256, (3, 3), activation='relu', padding='same',
+model.add(MaxPooling1D(pool_size=(3)))
+model.add(Conv1D(256, (7), activation='relu', padding='same',
                  kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
-model.add(MaxPooling2D(pool_size=(3, 3)))
-model.add(Conv2D(256, (3, 3), activation='relu', padding='same',
+model.add(MaxPooling1D(pool_size=(3)))
+model.add(Conv1D(256, (3), activation='relu', padding='same',
                  kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
-#model.add(Conv2D(256, (3, 3), activation='relu', padding='same',
-#                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
-#model.add(Conv2D(256, (3, 3), activation='relu', padding='same',
-#                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
-#model.add(Conv2D(256, (3, 3), activation='relu', padding='same',
-#                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
-model.add(MaxPooling2D(pool_size=(3, 3)))
+model.add(Conv1D(256, (3), activation='relu', padding='same',
+                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
+model.add(Conv1D(256, (3), activation='relu', padding='same',
+                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
+model.add(Conv1D(256, (3), activation='relu', padding='same',
+                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
+model.add(MaxPooling1D(pool_size=(3)))
 model.add(Flatten())
-model.add(Dense(256, activation='relu',
+model.add(Dense(1024, activation='relu',
                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
 model.add(Dropout(0.5))
-model.add(Dense(256, activation='relu',
+model.add(Dense(1024, activation='relu',
                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
 model.add(Dropout(0.5))
-model.add(Dense(len(uniq_cls), activation='softmax',
+model.add(Dense(max_cls, activation='softmax',
                 kernel_initializer=initializers.random_normal(mean=0,stddev=0.02)))
 sgd = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
 adam = Adam()
@@ -96,7 +104,7 @@ model.compile(loss='categorical_crossentropy',
               optimizer=adam,
               metrics=['accuracy'])
 def get_phrase_presentation(str):
-    res = numpy.zeros((max_chars,len(alphabet),1))
+    res = numpy.zeros((max_chars,len(alphabet)))
     str=list(str[:max_chars])
     def tst(i):
         res[i][alphabet_dict[str[i]]] = 1
@@ -106,8 +114,8 @@ def get_phrase_presentation(str):
 def get_data_for_nn(block_size,data):
     while True:
         #print("while loop")
-        x=numpy.zeros((block_size,max_chars,len(alphabet),1))
-        y=numpy.zeros((block_size,1))
+        x=numpy.zeros((block_size,max_chars,len(alphabet)))
+        y=numpy.zeros((block_size))
         index = 0
         step = 1
         for review in data.itertuples():
@@ -116,19 +124,19 @@ def get_data_for_nn(block_size,data):
             if index == (block_size*step - 1):
                 step = step + 1
                 #print("index: ", index)
-                yield x,np_utils.to_categorical(y, len(uniq_cls))
-                x = numpy.zeros((block_size,max_chars,len(alphabet),1))
-                y = numpy.zeros((block_size,1))
+                yield x,np_utils.to_categorical(y, max_cls)
+                x = numpy.zeros((block_size,max_chars,len(alphabet)))
+                y = numpy.zeros((block_size))
             index = index + 1
         if (len(data) % block_size) != 0:     
-            x=numpy.resize(x,(len(data)-block_size*step,max_chars,len(alphabet),1))
-            y=numpy.resize(y,(len(data)-block_size*step,1))
+            x=numpy.resize(x,(len(data)-block_size*step,max_chars,len(alphabet)))
+            y=numpy.resize(y,(len(data)-block_size*step))
             #print("epoch end: ", index)
-            yield x,np_utils.to_categorical(y, len(uniq_cls))
+            yield x,np_utils.to_categorical(y, max_cls)
 
 test_lines = 0
 max_lines = len(data_selected) - test_lines
-block_size = 50
+block_size = 1000
 steps_per_epoch = max_lines // block_size
 if max_lines % block_size != 0:
     steps_per_epoch = steps_per_epoch + 1
